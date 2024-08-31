@@ -1,7 +1,7 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from .database import save_user_wallet, get_user_wallet
-from .wallet import generate_faucet_wallet_sync, send_xrp
+from .wallet import generate_faucet_wallet_sync, send_xrp, client
 from xrpl.wallet import Wallet  # Import Wallet class
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
