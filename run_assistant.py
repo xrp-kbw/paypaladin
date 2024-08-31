@@ -23,5 +23,5 @@ def main(audio_file_path):
     
 if __name__ == "__main__":
     # audio_file_path = input("Enter the path to the audio file: ")
-    audio_file_path = "/Users/junmtan/Desktop/test.ogg"
+    audio_file_path = "/Users/junmtan/Desktop/test2.ogg"
     main(audio_file_path)
