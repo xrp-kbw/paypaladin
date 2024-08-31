@@ -7,12 +7,13 @@ from dotenv import load_dotenv
 from xrpl.clients import JsonRpcClient
 from bot import create_mongo_connection, get_user_wallet, save_user_wallet, generate_faucet_wallet_sync, send_xrp, start, echo, status, send
 from assistant.audio_processing import convert_audio_to_text
-from assistant.assistant_interaction import interact_with_assistant
+from assistant.assistant_manager import initialize_client, add_message_to_thread
 from telegram.error import NetworkError, TelegramError
 from tenacity import retry, stop_after_attempt, wait_exponential
 import logging
 from openai import OpenAI
 import json
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -79,33 +80,72 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="Unsupported message type. Please send either a text or voice message."
             )
             return
+    
+        client, assistant_id, _ = initialize_client()
+        thread_file = "thread_id.json"
 
-        # Interact with the assistant
-        payment_info = None
-        while not payment_info:
-            assistant_message = interact_with_assistant(transcribed_text)
+        if os.path.exists(thread_file):
+            with open(thread_file, "r") as file:
+                user_data = json.load(file)
             
-            if assistant_message:
-                # Send the assistant's response back to the user
-                await context.bot.send_message(chat_id=update.effective_chat.id, text=assistant_message)
+            if str(update.effective_user.id) in user_data:
+                thread_id = user_data[str(update.effective_user.id)]["thread_id"]
+                thread = client.beta.threads.retrieve(thread_id=thread_id)
+            else:
+                thread = client.beta.threads.create()
+                user_data[str(update.effective_user.id)] = {
+                    "thread_id": thread.id,
+                    "username": update.effective_user.username
+                }
+        else:
+            thread = client.beta.threads.create()
+            user_data = {
+                str(update.effective_user.id): {
+                    "thread_id": thread.id,
+                    "username": update.effective_user.username
+                }
+            }
 
-                # Check if the assistant's response contains payment information
-                validation_result = validate_response(assistant_message)
-                if validation_result["valid"]:
-                    payment_info = extract_json_from_response(assistant_message)
-                else:
-                    # Wait for user's response
-                    user_reply = await context.bot.wait_for_message(chat_id=update.effective_chat.id)
-                    transcribed_text = user_reply.text
+        with open(thread_file, "w") as file:
+            json.dump(user_data, file)     
+            
+        # Add user message to thread
+        add_message_to_thread(client, thread, transcribed_text)
+    
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=assistant_id
+        )
+         # Poll for the response (this could be improved with async calls)
+        while True:
+            run = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+            print(run.status)
+            if run.status == "completed":
+                break
+            time.sleep(1)
+
+        messages = client.beta.threads.messages.list(thread_id=thread.id)
+        assistant_message = messages.dict()["data"][0]["content"][0]["text"]["value"]
+        
+        if assistant_message:
+            if context.user_data.get('awaiting_confirmation') && context.user_data.get('payment_info'):
+                # TODO: Send transaction with payment info
+                payment_info = context.user_data.get('payment_info')
+                # SEND TRANSACTION WITH IT
+            validation_result = validate_response(assistant_message)
+            if validation_result["valid"]:
+                payment_info = extract_json_from_response(assistant_message)
+                await send_confirmation_message(context, update.effective_chat.id, payment_info)
             else:
                 await context.bot.send_message(
                     chat_id=update.effective_chat.id,
-                    text="I'm sorry, but I couldn't process your request. Can you please try again?"
+                    text=assistant_message
                 )
-                break
-
-        if payment_info:
-            await send_confirmation_message(context, update.effective_chat.id, payment_info)
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="I'm sorry, but I couldn't process your request. Can you please try again?"
+            )
 
     except NetworkError as e:
         print(f"NetworkError occurred: {e}")

@@ -1,9 +1,10 @@
 # crypto_assistant/__init__.py
 
 from .audio_processing import convert_audio_to_text
-from .assistant_interaction import interact_with_assistant
+from .assistant_manager import initialize_client, add_message_to_thread
 
 __all__ = [
     "convert_audio_to_text",
-    "interact_with_assistant",
+    "initialize_client",
+    "add_message_to_thread",
 ]
