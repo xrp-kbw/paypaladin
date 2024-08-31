@@ -5,7 +5,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from xrpl.clients import JsonRpcClient
-from bot import create_mongo_connection, get_user_wallet, save_user_wallet, generate_faucet_wallet_sync, send_xrp, start, echo, status, send
+from bot import create_mongo_connection, get_user_wallet, get_user_wallet_by_username, save_user_wallet, generate_faucet_wallet_sync, send_xrp, start, echo, status, send
 from assistant.audio_processing import convert_audio_to_text
 from assistant.assistant_manager import initialize_client, add_message_to_thread
 from telegram.error import NetworkError, TelegramError
@@ -14,6 +14,7 @@ import logging
 from openai import OpenAI
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 # Load environment variables from .env file
 load_dotenv()
@@ -130,9 +131,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
                         else:
                             await context.bot.send_message(chat_id=update.effective_chat.id, text="XRP sent successfully!")
-                            
                             # Send a message to another user as well
-                            other_user_id = 123456789  # Replace with the actual Telegram user ID of the other user
                             await context.bot.send_message(chat_id=recipient_data.user_id, text="XRP received successfully!")                        
                     else:        
                         await context.bot.send_message(chat_id=update.effective_chat.id, text="Recipient is not registered yet")
