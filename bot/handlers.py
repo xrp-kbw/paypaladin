@@ -2,9 +2,11 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from .database import save_user_wallet, get_user_wallet
 from .wallet import generate_faucet_wallet_sync, send_xrp, client
+from assistant.audio_processing import convert_audio_to_text
 from xrpl.wallet import Wallet  # Import Wallet class
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+import os
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Hello! I'm your bot.")
@@ -61,3 +63,20 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Send a message to another user as well
         other_user_id = 123456789  # Replace with the actual Telegram user ID of the other user
         await context.bot.send_message(chat_id=other_user_id, text="XRP sent successfully to another account!")
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle voice messages."""
+    # Get the voice message file ID
+    voice_file_id = update.message.voice.file_id
+    voice_file = await context.bot.get_file(voice_file_id)
+    # Specify the path in the current directory with the appropriate extension
+    voice_file_path = os.path.join(".", f"{voice_file_id}.ogg")
+    
+    # Download the file to the current directory
+    await voice_file.download_to_drive(voice_file_path)
+
+    transcribed_text = convert_audio_to_text(voice_file_path)
+    print(transcribed_text)
+    # Send a response to the user
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="I received your voice message!")
+
