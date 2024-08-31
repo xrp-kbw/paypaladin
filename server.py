@@ -1,6 +1,7 @@
 from flask import Flask, request
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from xrpl.wallet import Wallet
 import asyncio
 import os
 from dotenv import load_dotenv
@@ -117,6 +118,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # if recipient is not set up reply else send the funds
                     user_data = get_user_wallet(update.effective_user.id)
                     recipient_data = get_user_wallet_by_username(payment_info["recipient"])
+                    
                     if recipient_data:
                         recipient_wallet = Wallet.from_seed(recipient_data['private_key']) 
                         user_wallet = Wallet.from_seed(user_data['private_key']) 
@@ -130,9 +132,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if isinstance(response, str) and response.startswith("Submit failed:"):
                             await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
                         else:
+                            
                             await context.bot.send_message(chat_id=update.effective_chat.id, text="XRP sent successfully!")
                             # Send a message to another user as well
-                            await context.bot.send_message(chat_id=recipient_data.user_id, text="XRP received successfully!")                        
+                            await context.bot.send_message(chat_id=recipient_data['user_id'], text="XRP received successfully!")                        
                     else:        
                         await context.bot.send_message(chat_id=update.effective_chat.id, text="Recipient is not registered yet")
                     pass
