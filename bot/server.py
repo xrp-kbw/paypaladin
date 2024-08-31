@@ -6,7 +6,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from xrpl.clients import JsonRpcClient
-from xrpl.wallet import generate_faucet_wallet
+from xrpl.wallet import Wallet, generate_faucet_wallet
 
 JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(JSON_RPC_URL)
@@ -25,6 +25,12 @@ bot = Bot(token=TOKEN)
 
 # Initialize the application
 application = Application.builder().token(TOKEN).build()
+
+# In memory wallet store 
+# wallet = Wallet.from_secret("sEdS6aGnXgXJ9kZmVQHpzTwqjPhXL1q")
+user_wallets = {
+    # <telegram_id>: wallet
+}
 
 async def initialize_and_run():
     # Initialize the application
@@ -48,10 +54,16 @@ def generate_faucet_wallet_sync(client, debug):
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Use ThreadPoolExecutor to run the sync function in a separate thread
-    loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor() as pool:
-        test_wallet = await loop.run_in_executor(pool, generate_faucet_wallet_sync, client, True)
+    # Check if the user already has a wallet
+    if user_id in user_wallets:
+        test_wallet = user_wallets[user_id]
+    else:
+        # Use ThreadPoolExecutor to run the sync function in a separate thread
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as pool:
+            test_wallet = await loop.run_in_executor(pool, generate_faucet_wallet_sync, client, True)
+        # Store the generated wallet in the dictionary
+        user_wallets[user_id] = test_wallet
 
     # Extract the wallet address
     test_account = test_wallet.address
