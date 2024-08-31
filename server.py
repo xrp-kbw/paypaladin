@@ -140,7 +140,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(chat_id=update.effective_chat.id, text="Recipient is not registered yet")
                     pass
                 elif payment_info['action'] == 'request':
-                    # TODO: Send request payment message
+                    user_data = get_user_wallet(update.effective_user.id)
+                    recipient_data = get_user_wallet_by_username(payment_info["recipient"])
+                    if recipient_data:
+                        await context.bot.send_message(chat_id=recipient_data['user_id'], text=f"{user_data["username"]} is requesting Amount: {payment_info['amount']} {payment_info['currency']} from you\n")                        
+                    else:        
+                        await context.bot.send_message(chat_id=update.effective_chat.id, text="Recipient is not registered yet")
                     pass
             else:
                 validation_result = validate_response(assistant_message)
