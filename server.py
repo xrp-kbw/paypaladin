@@ -113,6 +113,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Check if is send or request payment
                 if payment_info['action'] == 'send':
                     # TODO: Send transaction with payment info
+                    # if recipient is not set up reply else send the funds
+                    user_data = get_user_wallet(update.effective_user.id)
+                    recipient_data = get_user_wallet_by_username(payment_info["recipient"])
+                    if recipient_data:
+                        recipient_wallet = Wallet.from_seed(recipient_data['private_key']) 
+                        user_wallet = Wallet.from_seed(user_data['private_key']) 
+                        loop = asyncio.get_event_loop()
+                        with ThreadPoolExecutor() as pool:
+                            response = await loop.run_in_executor(
+                                pool, send_xrp, user_wallet.seed, payment_info["amount"],recipient_wallet.address
+                            )
+
+                        # Check if the response is an error message or a successful transaction result
+                        if isinstance(response, str) and response.startswith("Submit failed:"):
+                            await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
+                        else:
+                            await context.bot.send_message(chat_id=update.effective_chat.id, text="XRP sent successfully!")
+                            
+                            # Send a message to another user as well
+                            other_user_id = 123456789  # Replace with the actual Telegram user ID of the other user
+                            await context.bot.send_message(chat_id=recipient_data.user_id, text="XRP received successfully!")                        
+                    else:        
+                        await context.bot.send_message(chat_id=update.effective_chat.id, text="Recipient is not registered yet")
                     pass
                 elif payment_info['action'] == 'request':
                     # TODO: Send request payment message

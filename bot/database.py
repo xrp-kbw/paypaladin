@@ -30,3 +30,10 @@ def get_user_wallet(user_id):
     except Exception as e:
         print(f"Error while retrieving user wallet: {e}")
         return None
+
+def get_user_wallet_by_username(user_name):
+    try:
+        return user_wallets_collection.find_one({"username": user_name})
+    except Exception as e:
+        print(f"Error while retrieving user wallet: {e}")
+        return None
