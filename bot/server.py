@@ -7,6 +7,7 @@ import os
 from dotenv import load_dotenv
 from xrpl.clients import JsonRpcClient
 from xrpl.wallet import Wallet, generate_faucet_wallet
+import xrpl
 
 JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(JSON_RPC_URL)
@@ -27,7 +28,7 @@ bot = Bot(token=TOKEN)
 application = Application.builder().token(TOKEN).build()
 
 # In memory wallet store 
-# wallet = Wallet.from_secret("sEdS6aGnXgXJ9kZmVQHpzTwqjPhXL1q")
+wallet = Wallet.from_secret("sEdS6aGnXgXJ9kZmVQHpzTwqjPhXL1q")
 user_wallets = {
     # <telegram_id>: wallet
 }
@@ -51,6 +52,20 @@ def generate_faucet_wallet_sync(client, debug):
     # Call the synchronous function which internally uses asyncio.run()
     return generate_faucet_wallet(client, debug=debug)
 
+def send_xrp(seed, amount, destination):
+    sending_wallet = Wallet.from_seed(seed)
+    payment = xrpl.models.transactions.Payment(
+        account=sending_wallet.address,
+        amount=xrpl.utils.xrp_to_drops(int(amount)),
+        destination=destination,
+    )
+    try:	
+        response = xrpl.transaction.submit_and_wait(payment, client, sending_wallet)	
+    except xrpl.transaction.XRPLReliableSubmissionException as e:	
+        response = f"Submit failed: {e}"
+
+    return response
+
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -71,9 +86,33 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send the wallet address to the user
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Your wallet address is: {test_account}")
 
+async def send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    # Check if the user already has a wallet
+    if user_id not in user_wallets:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="No wallet found for your user ID.")
+        return
+
+    test_wallet = user_wallets[user_id]
+
+    # Use ThreadPoolExecutor to run the sync function in a separate thread
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as pool:
+        response = await loop.run_in_executor(
+            pool, send_xrp, test_wallet.seed, 1, "raKQpxX2HC9RrVTX2gpyfun2f4QWnk5kez"
+        )
+
+    # Check if the response is an error message or a successful transaction result
+    if isinstance(response, str) and response.startswith("Submit failed:"):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="XRP sent successfully!")
+
 # Add handlers to the application
 application.add_handler(CommandHandler('start', start))
 application.add_handler(CommandHandler('status', status))
+application.add_handler(CommandHandler('send', send))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
 @app.route('/webhook', methods=['POST'])
