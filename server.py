@@ -51,43 +51,61 @@ async def download_voice_file(context, voice_file, voice_file_path):
         print(f"Error downloading voice file: {e}")
         raise
 
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle voice messages with improved error handling."""
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle both voice and text messages with improved error handling."""
     try:
-        # Get the voice message file ID
-        voice_file_id = update.message.voice.file_id
-        voice_file = await context.bot.get_file(voice_file_id)
-        # Specify the path in the current directory with the appropriate extension
-        voice_file_path = os.path.join(".", f"{voice_file_id}.ogg")
-        
-        # Download the file to the current directory with retry logic
-        await download_voice_file(context, voice_file, voice_file_path)
+        if update.message.voice:
+            # Handle voice message
+            voice_file_id = update.message.voice.file_id
+            voice_file = await context.bot.get_file(voice_file_id)
+            voice_file_path = os.path.join(".", f"{voice_file_id}.ogg")
+            
+            # Download the file to the current directory with retry logic
+            await download_voice_file(context, voice_file, voice_file_path)
 
-        transcribed_text = convert_audio_to_text(voice_file_path)
-        print(transcribed_text)
+            transcribed_text = convert_audio_to_text(voice_file_path)
 
-        # Process the transcribed text with the assistant
-        payment_info = interact_with_assistant(transcribed_text)
+            # Clean up the downloaded file
+            if os.path.exists(voice_file_path):
+                os.remove(voice_file_path)
+
+        elif update.message.text:
+            # Handle text message
+            transcribed_text = update.message.text
+        else:
+            # Unsupported message type
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Unsupported message type. Please send either a text or voice message."
+            )
+            return
+
+        # Interact with the assistant
+        payment_info = None
+        while not payment_info:
+            assistant_message = interact_with_assistant(transcribed_text)
+            
+            if assistant_message:
+                # Send the assistant's response back to the user
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=assistant_message)
+
+                # Check if the assistant's response contains payment information
+                validation_result = validate_response(assistant_message)
+                if validation_result["valid"]:
+                    payment_info = extract_json_from_response(assistant_message)
+                else:
+                    # Wait for user's response
+                    user_reply = await context.bot.wait_for_message(chat_id=update.effective_chat.id)
+                    transcribed_text = user_reply.text
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="I'm sorry, but I couldn't process your request. Can you please try again?"
+                )
+                break
 
         if payment_info:
-            # Create a confirmation message
-            confirmation_message = (
-                f"I understood the following payment information:\n"
-                f"Action: {payment_info['action']}\n"
-                f"Amount: {payment_info['amount']} {payment_info['currency']}\n"
-                f"Recipient: {payment_info['recipient']}\n"
-                f"Is this correct? Please reply with 'Yes' or 'No'."
-            )
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=confirmation_message)
-            
-            # Set the conversation state to wait for confirmation
-            context.user_data['awaiting_confirmation'] = True
-            context.user_data['payment_info'] = payment_info
-        else:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id, 
-                text="I'm sorry, I couldn't process the payment information from your voice message. Could you please try again?"
-            )
+            await send_confirmation_message(context, update.effective_chat.id, payment_info)
 
     except NetworkError as e:
         print(f"NetworkError occurred: {e}")
@@ -107,10 +125,6 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text="An unexpected error occurred. Please try again later."
         )
-    finally:
-        # Clean up the downloaded file
-        if os.path.exists(voice_file_path):
-            os.remove(voice_file_path)
 
 # In your main application setup
 def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -124,71 +138,6 @@ def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
             logger.info("Event loop restarted due to NetworkError")
         except Exception as e:
             logger.error(f"Failed to restart event loop: {e}")
-
-async def handle_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_response = update.message.text.lower()
-
-    if context.user_data.get('awaiting_confirmation'):
-        if user_response == 'yes':
-            payment_info = context.user_data['payment_info']
-            # Here you would add the logic to process the payment
-            await context.bot.send_message(
-                chat_id=chat_id, 
-                text="Great! I'll process the payment now."
-            )
-            # Reset the confirmation state
-            context.user_data['awaiting_confirmation'] = False
-            context.user_data.pop('payment_info', None)
-        elif user_response == 'no':
-            await context.bot.send_message(
-                chat_id=chat_id, 
-                text="I'm sorry for the misunderstanding. Let's try to gather the information again."
-            )
-            # Reset the confirmation state
-            context.user_data['awaiting_confirmation'] = False
-            context.user_data.pop('payment_info', None)
-            
-            # Use the interact_with_assistant function to gather information again
-            payment_info = await gather_payment_info(update, context)
-            if payment_info:
-                await send_confirmation_message(context, chat_id, payment_info)
-            else:
-                await context.bot.send_message(
-                    chat_id=chat_id, 
-                    text="I'm having trouble understanding the payment details. Could you please provide the information again?"
-                )
-        else:
-            await context.bot.send_message(
-                chat_id=chat_id, 
-                text="Please respond with 'Yes' or 'No'."
-            )
-    else:
-        # Handle regular text messages by attempting to extract payment information
-        payment_info = await gather_payment_info(update, context)
-        if payment_info:
-            await send_confirmation_message(context, chat_id, payment_info)
-        else:
-            await context.bot.send_message(
-                chat_id=chat_id, 
-                text="I couldn't understand the payment details from your message. Could you please provide the information in a clear format?"
-            )
-
-async def gather_payment_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user_message = update.message.text
-
-    payment_info = interact_with_assistant(user_message)
-    
-    while payment_info is None:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="I need more information. Could you please provide the missing details?"
-        )
-        user_response = await context.bot.await_message(chat_id=chat_id)
-        payment_info = interact_with_assistant(user_response.text)
-
-    return payment_info
 
 async def send_confirmation_message(context, chat_id, payment_info):
     confirmation_message = (
@@ -204,44 +153,26 @@ async def send_confirmation_message(context, chat_id, payment_info):
     context.user_data['awaiting_confirmation'] = True
     context.user_data['payment_info'] = payment_info
 
-def interact_with_assistant(transcribed_text):
-    # Load OpenAI API key from environment variable
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def validate_response(assistant_response):
+    """
+    Validates the response from the assistant to check if all necessary information is present.
 
-    try:
-        # Initial conversation loop
-        assistant_prompt = (
-            "You are an assistant helping with cryptocurrency payments. The user "
-            "provided the following transcribed text: \n\n"
-            f"{transcribed_text}\n\n"
-            "Your task is to: \n"
-            "1. Extract the action (send or request payment).\n"
-            "2. Extract the amount.\n"
-            "3. Extract the currency (e.g., XRP, BTC, ETH).\n"
-            "4. Extract the recipient's Telegram handle (e.g., @username).\n"
-            "5. If any information is missing or unclear, ask the user for clarification.\n"
-            "6. When a name is mentioned, assume that it is the telegram handle first, and ask for confirmation\n"
-            "7. Once all information is gathered, generate a JSON object containing "
-            "all the necessary payment information for processing on the XRP ledger."
-        )
+    Parameters:
+    response (str): The assistant's response containing the JSON or missing information.
 
-        # Call the OpenAI API with the prompt
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": assistant_prompt}
-            ]
-        )
-        # Extract the assistant's message
-        assistant_message = response.choices[0].message.content
-        
-        # Extract JSON from the assistant's message
-        return extract_json_from_response(assistant_message)
-
-    except Exception as e:
-        print(f"An error occurred during interaction with the assistant: {e}")
-        return None
+    Returns:
+    dict: A dictionary with 'valid' as a boolean indicating if the response is complete,
+          and 'missing_info' as a list of missing details if any.
+    """
+    required_keys = ["action", "amount", "currency", "recipient"]
+    validation_result = {"valid": True, "missing_info": []}
+    
+    for key in required_keys:
+        if key not in assistant_response:
+            validation_result["valid"] = False
+            validation_result["missing_info"].append(key)
+    
+    return validation_result
 
 def extract_json_from_response(assistant_response):
     try:
@@ -262,8 +193,7 @@ def extract_json_from_response(assistant_response):
 application.add_handler(CommandHandler('start', start))
 application.add_handler(CommandHandler('status', status))
 application.add_handler(CommandHandler('send', send))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_confirmation))
-application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+application.add_handler(MessageHandler(filters.TEXT | filters.VOICE, handle_message))
 application.add_error_handler(error_handler)
 
 @app.route('/webhook', methods=['POST'])

@@ -1,5 +1,3 @@
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
 from dotenv import load_dotenv
 import whisper
 
@@ -25,7 +23,7 @@ def convert_audio_to_text(audio_file_path):
 
     try:
         print("Processing audio...")
-        model = whisper.load_model("base")
+        model = whisper.load_model("base.en")
         result = model.transcribe(audio_file_path)
         print("Transcription: " + result["text"])
         return result["text"]
