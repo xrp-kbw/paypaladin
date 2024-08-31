@@ -55,30 +55,9 @@ async def download_voice_file(context, voice_file, voice_file_path):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle both voice and text messages with improved error handling."""
     try:
-        if update.message.voice:
-            # Handle voice message
-            voice_file_id = update.message.voice.file_id
-            voice_file = await context.bot.get_file(voice_file_id)
-            voice_file_path = os.path.join(".", f"{voice_file_id}.ogg")
-            
-            # Download the file to the current directory with retry logic
-            await download_voice_file(context, voice_file, voice_file_path)
 
-            transcribed_text = convert_audio_to_text(voice_file_path)
-
-            # Clean up the downloaded file
-            if os.path.exists(voice_file_path):
-                os.remove(voice_file_path)
-
-        elif update.message.text:
-            # Handle text message
-            transcribed_text = update.message.text
-        else:
-            # Unsupported message type
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Unsupported message type. Please send either a text or voice message."
-            )
+        transcribed_text = await process_message(update, context)
+        if transcribed_text is None:
             return
     
         client, assistant_id, _ = initialize_client()
@@ -128,19 +107,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         assistant_message = messages.dict()["data"][0]["content"][0]["text"]["value"]
         
         if assistant_message:
-            if context.user_data.get('awaiting_confirmation') && context.user_data.get('payment_info'):
+            if context.user_data.get('awaiting_confirmation') and context.user_data.get('payment_info'):
                 # TODO: Send transaction with payment info
                 payment_info = context.user_data.get('payment_info')
-                # SEND TRANSACTION WITH IT
-            validation_result = validate_response(assistant_message)
-            if validation_result["valid"]:
-                payment_info = extract_json_from_response(assistant_message)
-                await send_confirmation_message(context, update.effective_chat.id, payment_info)
+                # Check if is send or request payment
+                if payment_info['action'] == 'send':
+                    # TODO: Send transaction with payment info
+                    pass
+                elif payment_info['action'] == 'request':
+                    # TODO: Send request payment message
+                    pass
             else:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=assistant_message
-                )
+                validation_result = validate_response(assistant_message)
+                if validation_result["valid"]:
+                    payment_info = extract_json_from_response(assistant_message)
+                    await send_confirmation_message(context, update.effective_chat.id, payment_info)
+                else:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=assistant_message
+                    )
         else:
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
@@ -228,6 +214,35 @@ def extract_json_from_response(assistant_response):
     except json.JSONDecodeError as e:
         print(f"Error decoding JSON: {e}")
         return None
+    
+async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.message.voice:
+            # Handle voice message
+            voice_file_id = update.message.voice.file_id
+            voice_file = await context.bot.get_file(voice_file_id)
+            voice_file_path = os.path.join(".", f"{voice_file_id}.ogg")
+            
+            # Download the file to the current directory with retry logic
+            await download_voice_file(context, voice_file, voice_file_path)
+
+            transcribed_text = convert_audio_to_text(voice_file_path)
+
+            # Clean up the downloaded file
+            if os.path.exists(voice_file_path):
+                os.remove(voice_file_path)
+
+        elif update.message.text:
+            # Handle text message
+            transcribed_text = update.message.text
+        else:
+            # Unsupported message type
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Unsupported message type. Please send either a text or voice message."
+            )
+            return None
+
+        return transcribed_text
 
 # Add handlers to the application
 application.add_handler(CommandHandler('start', start))
