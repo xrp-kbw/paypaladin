@@ -8,12 +8,47 @@ from dotenv import load_dotenv
 from xrpl.clients import JsonRpcClient
 from xrpl.wallet import Wallet, generate_faucet_wallet
 import xrpl
+from pymongo import MongoClient, errors
+
+# Load environment variables from .env file
+load_dotenv()
+# Connect to MongoDB
+def create_mongo_connection():
+    try:
+        print(os.getenv('MONGO_URI'))
+        client = MongoClient(os.getenv('MONGO_URI'))  # Replace with your MongoDB URI
+        db = client['user_wallets_db']  # The name of your database
+        # Attempt to make a connection to the server
+        client.admin.command('ping')
+        print("Connected to MongoDB")
+        return db['user_wallets']  # The name of your collection
+    except errors.ConnectionFailure as e:
+        print(f"Could not connect to MongoDB: {e}")
+        return None
+
+def save_user_wallet(user_id, username, private_key):
+    try:
+        user_wallets_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"username": username, "private_key": private_key}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"Error while saving user wallet: {e}")
+
+def get_user_wallet(user_id):
+    try:
+        return user_wallets_collection.find_one({"user_id": user_id})
+    except Exception as e:
+        print(f"Error while retrieving user wallet: {e}")
+        return None
+
+# Establish connection to the collection
+user_wallets_collection = create_mongo_connection()
 
 JSON_RPC_URL = "https://s.altnet.rippletest.net:51234/"
 client = JsonRpcClient(JSON_RPC_URL)
 
-# Load environment variables from .env file
-load_dotenv()
 
 # Get the token from environment variables
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -68,17 +103,19 @@ def send_xrp(seed, amount, destination):
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    username = update.effective_user.username
 
-    # Check if the user already has a wallet
-    if user_id in user_wallets:
-        test_wallet = user_wallets[user_id]
+    # Check if the user already has a wallet in the database
+    user_data = get_user_wallet(user_id)
+    if user_data:
+        test_wallet = Wallet.from_seed(user_data['private_key'])  # Load wallet using the stored private key
     else:
         # Use ThreadPoolExecutor to run the sync function in a separate thread
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as pool:
             test_wallet = await loop.run_in_executor(pool, generate_faucet_wallet_sync, client, True)
-        # Store the generated wallet in the dictionary
-        user_wallets[user_id] = test_wallet
+        # Save the new wallet to the database
+        save_user_wallet(user_id, username, test_wallet.seed)
 
     # Extract the wallet address
     test_account = test_wallet.address
@@ -89,12 +126,13 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # Check if the user already has a wallet
-    if user_id not in user_wallets:
+    # Retrieve the user's wallet from the database
+    user_data = get_user_wallet(user_id)
+    if not user_data:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="No wallet found for your user ID.")
         return
 
-    test_wallet = user_wallets[user_id]
+    test_wallet = Wallet.from_seed(user_data['private_key'])  # Load wallet using the stored private key
 
     # Use ThreadPoolExecutor to run the sync function in a separate thread
     loop = asyncio.get_event_loop()
@@ -108,6 +146,10 @@ async def send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text=response)
     else:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="XRP sent successfully!")
+        
+        # Send a message to another user as well
+        other_user_id = 123456789  # Replace with the actual Telegram user ID of the other user
+        await context.bot.send_message(chat_id=other_user_id, text="XRP sent successfully to another account!")
 
 # Add handlers to the application
 application.add_handler(CommandHandler('start', start))
