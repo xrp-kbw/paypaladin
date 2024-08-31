@@ -117,7 +117,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     # TODO: Send transaction with payment info
                     # if recipient is not set up reply else send the funds
                     user_data = get_user_wallet(update.effective_user.id)
-                    recipient_data = get_user_wallet_by_username(payment_info["recipient"])
+                    recipient_data = get_user_wallet_by_username(payment_info["recipient"][1:])
                     
                     if recipient_data:
                         recipient_wallet = Wallet.from_seed(recipient_data['private_key']) 
@@ -295,6 +295,7 @@ def webhook():
 
 def run_app():
     # Initialize the application
+    loop.run_until_complete(bot.initialize())
     loop.run_until_complete(application.initialize())
     
     # Start the Flask server
