@@ -141,7 +141,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
                 elif payment_info['action'] == 'request':
                     user_data = get_user_wallet(update.effective_user.id)
-                    recipient_data = get_user_wallet_by_username(payment_info["recipient"])
+                    recipient_data = get_user_wallet_by_username(payment_info["recipient"][1:])
                     if recipient_data:
                         await context.bot.send_message(chat_id=recipient_data['user_id'], text=f"{user_data["username"]} is requesting Amount: {payment_info['amount']} {payment_info['currency']} from you\n")                        
                     else:        
