@@ -276,7 +276,7 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Add handlers to the application
 application.add_handler(CommandHandler('start', start))
-application.add_handler(CommandHandler('status', status))
+application.add_handler(CommandHandler('register', status))
 application.add_handler(CommandHandler('send', send))
 application.add_handler(MessageHandler(filters.TEXT | filters.VOICE, handle_message))
 application.add_error_handler(error_handler)
